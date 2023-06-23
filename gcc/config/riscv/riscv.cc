@@ -3880,12 +3880,30 @@ riscv_frame_set (rtx mem, rtx reg)
   return set;
 }
 
-/* wch fast interrupt push fixed reg and ra reg by hardware */
+/* wch fast interrupt pushes/pops fixed used and ra registers other than
+   s0, s1, and float point register(when use hard float point function)
+   into the stack by hardware automatically */
 
 static bool
 riscv_wch_fast_interrupt_saved_reg (unsigned int regno)
 {
-  return (call_used_or_fixed_reg_p(regno) || (regno == RETURN_ADDR_REGNUM));
+  if (regno == RETURN_ADDR_REGNUM)
+    return true;
+  
+  if (call_used_or_fixed_reg_p(regno))
+    {
+      /* It doesn't matter when software float point */
+      if (UNITS_PER_FP_ARG == 0)
+        return true;
+      /* The hardware float point needs to be manually pushed/poped
+         into the stack */  
+      else if ((regno >= FP_REG_FIRST) && (regno <= FP_REG_LAST))
+        return false;
+      else
+        return true;  
+    }
+
+  return false;
 }
 
 /* Return true if the current function must save register REGNO.  */
@@ -3896,7 +3914,7 @@ riscv_save_reg_p (unsigned int regno)
   bool call_saved = !global_regs[regno] && !call_used_or_fixed_reg_p (regno);
   bool might_clobber = crtl->saves_all_registers
 		       || df_regs_ever_live_p (regno);
-  /* wch fast interrupt push register REGNO by hardware */
+  /* wch fast interrupt saves automatically */
   if (cfun->machine->interrupt_handler_p
       && (cfun->machine->interrupt_mode == WCH_FAST_MODE)
       && riscv_wch_fast_interrupt_saved_reg(regno))
@@ -4635,7 +4653,7 @@ riscv_expand_epilogue (int style)
 bool
 riscv_epilogue_uses (unsigned int regno)
 {
-  /* wch fast interrupt pop register REGNO by hardware */
+  /* wch fast interrupt end epilogue automatically */
   if (epilogue_completed && cfun->machine->interrupt_handler_p
       && (cfun->machine->interrupt_mode == WCH_FAST_MODE)
       && riscv_wch_fast_interrupt_saved_reg (regno))
@@ -5523,7 +5541,7 @@ bool
 riscv_hard_regno_rename_ok (unsigned from_regno ATTRIBUTE_UNUSED,
 			    unsigned to_regno)
 {
-  /* wch fast interrupt push REG_NO can rename */
+  /* wch fast interrupt registers saved/restored by hardware can be renamed */
   if (cfun->machine->interrupt_handler_p
       && (cfun->machine->interrupt_mode == WCH_FAST_MODE)
       && riscv_wch_fast_interrupt_saved_reg (to_regno))
